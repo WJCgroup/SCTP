@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCTP · Simple Portfolio Framework</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #030712;
+      --surface:  #0f172a;
+      --card:     #111827;
+      --border:   #1f2937;
+      --muted:    #4b5563;
+      --text:     #e5e7eb;
+      --text-dim: #9ca3af;
+      --green:    #34d399;
+      --red:      #f87171;
+      --blue:     #3b82f6;
+    }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Layout ── */
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .logo  { display: flex; align-items: center; gap: 10px; }
+    .logo-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--blue); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #fff; flex-shrink: 0; }
+    .logo h1   { font-size: 15px; font-weight: 600; color: #fff; line-height: 1.2; }
+    .logo p    { font-size: 11px; color: var(--muted); }
+    .header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    #price-status { font-size: 11px; color: var(--muted); }
+    #price-status.live  { color: var(--green); }
+    #price-status.error { color: var(--red); }
+    .btn { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text-dim); transition: background .15s, color .15s; white-space: nowrap; }
+    .btn:hover { background: #1f2937; color: var(--text); }
+    .btn-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+    /* ── Summary strip ── */
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 28px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .stat-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .stat-card .value { font-size: 22px; font-weight: 700; color: #fff; margin-top: 4px; }
+    .stat-card .value.pos { color: var(--green); }
+    .stat-card .value.neg { color: var(--red); }
+    .stat-card .sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Grid ── */
+    .layers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 32px; }
+
+    /* ── Layer card ── */
+    .layer-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .layer-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .layer-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; color: #fff; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .layer-alloc { font-size: 12px; color: var(--muted); }
+    .alloc-bar-wrap { padding: 0 16px; margin-top: -1px; }
+    .alloc-bar { height: 3px; background: var(--border); border-radius: 99px; overflow: hidden; margin-bottom: 4px; }
+    .alloc-fill { height: 100%; border-radius: 99px; transition: width .4s ease; }
+
+    /* ── Ticker rows ── */
+    .ticker-table { width: 100%; border-collapse: collapse; }
+    .ticker-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 16px; text-align: right; font-weight: 500; }
+    .ticker-table th:first-child { text-align: left; }
+    .ticker-table td { padding: 7px 16px; border-top: 1px solid var(--border); text-align: right; font-size: 13px; }
+    .ticker-table td:first-child { text-align: left; }
+    .ticker-sym  { font-weight: 600; color: #fff; }
+    .ticker-name { font-size: 10px; color: var(--muted); }
+    .price-val   { font-weight: 500; }
+    .chg-pos { color: var(--green); }
+    .chg-neg { color: var(--red); }
+    .shares-input { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 12px; padding: 4px 8px; width: 80px; text-align: right; outline: none; transition: border-color .15s; }
+    .shares-input:focus { border-color: var(--blue); }
+    .layer-footer { padding: 10px 16px; background: var(--surface); display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+    .layer-footer .lv { font-weight: 600; color: #fff; }
+
+    /* ── Chart section ── */
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+    @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+    .chart-card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 16px; }
+    .chart-wrap { position: relative; height: 240px; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 32px; color: var(--muted); font-size: 13px; }
+
+    /* ── Loading spinner ── */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 480px) { .summary { grid-template-columns: 1fr 1fr; } header { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">SP</div>
+    <div>
+      <h1>SCTP Portfolio</h1>
+      <p>Simple Portfolio Framework</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <span id="price-status"><span class="spinner"></span>Fetching prices…</span>
+    <button class="btn" onclick="fetchPrices()">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <!-- Summary -->
+  <div class="summary">
+    <div class="stat-card">
+      <div class="label">Total Value</div>
+      <div class="value" id="stat-total">—</div>
+      <div class="sub">enter shares to calculate</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Unrealised P&amp;L</div>
+      <div class="value" id="stat-pnl">—</div>
+      <div class="sub" id="stat-pnl-pct">enter avg cost to see P&amp;L</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Cost Basis</div>
+      <div class="value" id="stat-cost">—</div>
+      <div class="sub" id="stat-positions">0 positions</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Largest Layer</div>
+      <div class="value" style="font-size:16px" id="stat-top">—</div>
+      <div class="sub" id="stat-top-pct"></div>
+    </div>
+  </div>
+
+  <!-- Layer cards -->
+  <div class="layers-grid" id="layers-grid"></div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Allocation by Layer</h3>
+      <div class="chart-wrap"><canvas id="pie-chart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Value by Ticker</h3>
+      <div class="chart-wrap"><canvas id="bar-chart"></canvas></div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── Portfolio definition ───────────────────────────────────────────────────
+const LAYERS = [
+  { id: 'FOUNDATION',  label: 'Foundation',  color: '#3b82f6', tickers: ['VOO', 'SPY'] },
+  { id: 'RAILS',       label: 'Rails',       color: '#8b5cf6', tickers: ['XRP', 'COIN', 'V', 'MA', 'LINK'] },
+  { id: 'PLUMBING',    label: 'Plumbing',    color: '#06b6d4', tickers: ['JPM', 'BLK', 'CME'] },
+  { id: 'AI_POWER',    label: 'AI Power',    color: '#f59e0b', tickers: ['NVDA', 'MU', 'BE'] },
+  { id: 'AI_SOFTWARE', label: 'AI Software', color: '#10b981', tickers: ['PLTR', 'CRWD', 'MSFT'] },
+  { id: 'SPECULATIVE', label: 'Speculative', color: '#ef4444', tickers: ['SNDK', 'STX'] },
+]
+
+// Yahoo Finance symbols (crypto needs -USD suffix)
+const YF_MAP = { XRP: 'XRP-USD', LINK: 'LINK-USD' }
+const toYF   = s => YF_MAP[s] ?? s
+const fromYF = s => Object.keys(YF_MAP).find(k => YF_MAP[k] === s) ?? s
+
+const ALL_TICKERS  = LAYERS.flatMap(l => l.tickers)
+const TICKER_LAYER = {}
+LAYERS.forEach(l => l.tickers.forEach(t => { TICKER_LAYER[t] = l }))
+
+// Fallback prices (used when the live fetch fails)
+const FALLBACK = {
+  VOO:  { price: 548.32,   chg: 3.21,   pct:  0.59 },
+  SPY:  { price: 562.18,   chg: 3.45,   pct:  0.62 },
+  XRP:  { price: 2.84,     chg: 0.07,   pct:  2.53 },
+  COIN: { price: 218.45,   chg: -4.32,  pct: -1.94 },
+  V:    { price: 281.60,   chg: 1.15,   pct:  0.41 },
+  MA:   { price: 472.90,   chg: 2.38,   pct:  0.51 },
+  LINK: { price: 18.72,    chg: 0.54,   pct:  2.97 },
+  JPM:  { price: 234.15,   chg: 0.89,   pct:  0.38 },
+  BLK:  { price: 982.40,   chg: 5.60,   pct:  0.57 },
+  CME:  { price: 231.80,   chg: -0.55,  pct: -0.24 },
+  NVDA: { price: 1024.50,  chg: 18.30,  pct:  1.82 },
+  MU:   { price: 118.65,   chg: 2.10,   pct:  1.80 },
+  BE:   { price: 24.38,    chg: -0.42,  pct: -1.69 },
+  PLTR: { price: 38.92,    chg: 0.87,   pct:  2.29 },
+  CRWD: { price: 312.75,   chg: 4.20,   pct:  1.36 },
+  MSFT: { price: 418.30,   chg: 2.95,   pct:  0.71 },
+  SNDK: { price: 67.45,    chg: 1.23,   pct:  1.86 },
+  STX:  { price: 102.80,   chg: -1.15,  pct: -1.11 },
+}
+
+// ── State ─────────────────────────────────────────────────────────────────
+let PRICES = { ...FALLBACK }
+
+function loadHoldings() {
+  try { return JSON.parse(localStorage.getItem('sctp_holdings') || '{}') } catch { return {} }
+}
+function saveHoldings(h) { localStorage.setItem('sctp_holdings', JSON.stringify(h)) }
+let holdings = loadHoldings() // { NVDA: { shares: 10, avgCost: 900 }, ... }
+
+// ── Formatting helpers ─────────────────────────────────────────────────────
+const fmt  = (n, d=2) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+const usd  = n => '$' + fmt(Math.abs(n))
+const pct  = n => (n >= 0 ? '+' : '') + fmt(n) + '%'
+const sign = n => n >= 0 ? '+' : '−'
+
+// ── Live price fetch via Yahoo Finance v7 ─────────────────────────────────
+async function fetchPrices() {
+  const el = document.getElementById('price-status')
+  el.className = ''
+  el.innerHTML = '<span class="spinner"></span>Fetching prices…'
+
+  const yfSymbols = ALL_TICKERS.map(toYF).join(',')
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yfSymbols}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,shortName`
+
+  try {
+    const res  = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const json = await res.json()
+    const quotes = json?.quoteResponse?.result ?? []
+    if (!quotes.length) throw new Error('empty response')
+
+    quotes.forEach(q => {
+      const sym = fromYF(q.symbol)
+      if (sym && q.regularMarketPrice != null) {
+        PRICES[sym] = {
+          price: q.regularMarketPrice,
+          chg:   q.regularMarketChange ?? 0,
+          pct:   q.regularMarketChangePercent ?? 0,
+          name:  q.shortName ?? sym,
+        }
+      }
+    })
+
+    const t = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    el.className = 'live'
+    el.textContent = '● Live · updated ' + t
+  } catch (err) {
+    console.warn('Yahoo Finance fetch failed, using fallback prices:', err.message)
+    el.className = 'error'
+    el.textContent = '⚠ Live fetch failed · showing cached prices'
+  }
+
+  render()
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+let pieChart = null
+let barChart = null
+
+function render() {
+  let totalValue = 0, totalCost = 0, posCount = 0
+  const layerValues = {}
+
+  LAYERS.forEach(l => { layerValues[l.id] = 0 })
+
+  ALL_TICKERS.forEach(sym => {
+    const h = holdings[sym]
+    if (!h || !h.shares) return
+    const price = PRICES[sym]?.price ?? 0
+    const mv    = h.shares * price
+    const cb    = h.shares * (h.avgCost || 0)
+    totalValue += mv
+    totalCost  += cb
+    layerValues[TICKER_LAYER[sym].id] += mv
+    posCount++
+  })
+
+  const totalPnL    = totalValue - totalCost
+  const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0
+
+  // Summary strip
+  const statTotal = document.getElementById('stat-total')
+  statTotal.textContent = totalValue > 0 ? usd(totalValue) : '—'
+  statTotal.className = 'value'
+
+  const statPnl = document.getElementById('stat-pnl')
+  if (totalCost > 0) {
+    statPnl.textContent = (totalPnL >= 0 ? '+' : '−') + usd(totalPnL)
+    statPnl.className = 'value ' + (totalPnL >= 0 ? 'pos' : 'neg')
+    document.getElementById('stat-pnl-pct').textContent = pct(totalPnLPct) + ' overall'
+  } else {
+    statPnl.textContent = '—'
+    statPnl.className = 'value'
+    document.getElementById('stat-pnl-pct').textContent = 'enter avg cost to see P&L'
+  }
+
+  const statCost = document.getElementById('stat-cost')
+  statCost.textContent = totalCost > 0 ? usd(totalCost) : '—'
+  document.getElementById('stat-positions').textContent = posCount + ' position' + (posCount !== 1 ? 's' : '')
+
+  // Largest layer
+  const topLayer = LAYERS.reduce((a, b) => layerValues[a.id] >= layerValues[b.id] ? a : b)
+  const topVal   = layerValues[topLayer.id]
+  document.getElementById('stat-top').textContent     = topVal > 0 ? topLayer.label : '—'
+  document.getElementById('stat-top-pct').textContent = topVal > 0 ? fmt((topVal / totalValue) * 100) + '% of portfolio' : ''
+
+  // Layer cards
+  renderLayerCards(totalValue, layerValues)
+  renderCharts(totalValue, layerValues)
+}
+
+function renderLayerCards(totalValue, layerValues) {
+  const grid = document.getElementById('layers-grid')
+  grid.innerHTML = ''
+
+  LAYERS.forEach(layer => {
+    const lv    = layerValues[layer.id]
+    const allocPct = totalValue > 0 ? (lv / totalValue) * 100 : 0
+
+    const card = document.createElement('div')
+    card.className = 'layer-card'
+
+    // Header
+    card.innerHTML = `
+      <div class="layer-header">
+        <div class="layer-title">
+          <span class="dot" style="background:${layer.color}"></span>
+          ${layer.label}
+        </div>
+        <div class="layer-alloc">${fmt(allocPct)}% of portfolio</div>
+      </div>
+      <div class="alloc-bar-wrap">
+        <div class="alloc-bar">
+          <div class="alloc-fill" style="width:${Math.min(allocPct,100)}%;background:${layer.color}"></div>
+        </div>
+      </div>
+    `
+
+    // Ticker table
+    const table = document.createElement('table')
+    table.className = 'ticker-table'
+    table.innerHTML = `<thead><tr>
+      <th>Ticker</th>
+      <th>Price</th>
+      <th>Day</th>
+      <th>Shares</th>
+      <th>Value</th>
+    </tr></thead>`
+
+    const tbody = document.createElement('tbody')
+    layer.tickers.forEach(sym => {
+      const p = PRICES[sym]
+      const h = holdings[sym] || { shares: '', avgCost: '' }
+      const mv = h.shares ? h.shares * (p?.price ?? 0) : 0
+      const isPos = (p?.pct ?? 0) >= 0
+
+      const row = document.createElement('tr')
+      row.innerHTML = `
+        <td>
+          <div class="ticker-sym">${sym}</div>
+          <div class="ticker-name">${p?.name ?? ''}</div>
+        </td>
+        <td class="price-val">${p ? '$' + fmt(p.price) : '—'}</td>
+        <td class="${isPos ? 'chg-pos' : 'chg-neg'}">${p ? pct(p.pct) : '—'}</td>
+        <td>
+          <input class="shares-input" type="number" min="0" step="any"
+            value="${h.shares ?? ''}"
+            placeholder="0"
+            data-sym="${sym}"
+            data-field="shares"
+            title="Shares held"
+          />
+        </td>
+        <td>${mv > 0 ? usd(mv) : '<span style="color:var(--muted)">—</span>'}</td>
+      `
+      tbody.appendChild(row)
+    })
+
+    table.appendChild(tbody)
+    card.appendChild(table)
+
+    // Footer
+    const footer = document.createElement('div')
+    footer.className = 'layer-footer'
+    footer.innerHTML = `
+      <span>${layer.tickers.length} tickers</span>
+      <span class="lv">${lv > 0 ? usd(lv) : '—'}</span>
+    `
+    card.appendChild(footer)
+
+    // Events
+    card.querySelectorAll('.shares-input').forEach(inp => {
+      inp.addEventListener('change', e => {
+        const sym   = e.target.dataset.sym
+        const field = e.target.dataset.field
+        if (!holdings[sym]) holdings[sym] = {}
+        const val = parseFloat(e.target.value)
+        holdings[sym][field] = isNaN(val) ? 0 : val
+        saveHoldings(holdings)
+        render()
+      })
+    })
+
+    grid.appendChild(card)
+  })
+}
+
+function renderCharts(totalValue, layerValues) {
+  // Pie chart — allocation by layer
+  const pieData    = LAYERS.map(l => layerValues[l.id]).filter((_, i) => layerValues[LAYERS[i].id] > 0)
+  const pieLabels  = LAYERS.filter(l => layerValues[l.id] > 0).map(l => l.label)
+  const pieColors  = LAYERS.filter(l => layerValues[l.id] > 0).map(l => l.color)
+
+  if (pieChart) pieChart.destroy()
+  const pieCtx = document.getElementById('pie-chart').getContext('2d')
+
+  if (!pieData.length) {
+    pieCtx.clearRect(0, 0, 999, 999)
+    pieCtx.fillStyle = '#4b5563'
+    pieCtx.font = '13px system-ui'
+    pieCtx.textAlign = 'center'
+    pieCtx.fillText('Enter shares to see allocation', pieCtx.canvas.width / 2, pieCtx.canvas.height / 2)
+  } else {
+    pieChart = new Chart(pieCtx, {
+      type: 'doughnut',
+      data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: pieColors, borderColor: '#030712', borderWidth: 3, hoverOffset: 6 }] },
+      options: {
+        cutout: '55%',
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#9ca3af', font: { size: 11 }, padding: 14, boxWidth: 10 } },
+          tooltip: {
+            backgroundColor: '#1f2937',
+            titleColor: '#e5e7eb',
+            bodyColor: '#9ca3af',
+            callbacks: {
+              label: ctx => {
+                const pct = totalValue > 0 ? ((ctx.raw / totalValue) * 100).toFixed(1) : 0
+                return ` ${usd(ctx.raw)}  (${pct}%)`
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  // Bar chart — value by ticker
+  const barTickers = []
+  const barValues  = []
+  const barColors  = []
+
+  LAYERS.forEach(layer => {
+    layer.tickers.forEach(sym => {
+      const h = holdings[sym]
+      if (!h || !h.shares) return
+      const mv = h.shares * (PRICES[sym]?.price ?? 0)
+      if (mv <= 0) return
+      barTickers.push(sym)
+      barValues.push(mv)
+      barColors.push(TICKER_LAYER[sym].color)
+    })
+  })
+
+  if (barChart) barChart.destroy()
+  const barCtx = document.getElementById('bar-chart').getContext('2d')
+
+  if (!barValues.length) {
+    barCtx.clearRect(0, 0, 999, 999)
+    barCtx.fillStyle = '#4b5563'
+    barCtx.font = '13px system-ui'
+    barCtx.textAlign = 'center'
+    barCtx.fillText('Enter shares to see ticker breakdown', barCtx.canvas.width / 2, barCtx.canvas.height / 2)
+  } else {
+    barChart = new Chart(barCtx, {
+      type: 'bar',
+      data: {
+        labels: barTickers,
+        datasets: [{
+          data: barValues,
+          backgroundColor: barColors,
+          borderRadius: 5,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        indexAxis: 'x',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1f2937',
+            titleColor: '#e5e7eb',
+            bodyColor: '#9ca3af',
+            callbacks: { label: ctx => ' ' + usd(ctx.raw) }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 11 } } },
+          y: {
+            grid: { color: '#1f2937' },
+            ticks: {
+              color: '#6b7280',
+              font: { size: 10 },
+              callback: v => v >= 1000 ? '$' + (v / 1000).toFixed(0) + 'k' : '$' + v,
+            }
+          }
+        }
+      }
+    })
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+fetchPrices()
+</script>
+</body>
+</html>
